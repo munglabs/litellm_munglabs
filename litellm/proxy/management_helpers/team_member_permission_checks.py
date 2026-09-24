@@ -16,6 +16,7 @@ from litellm.proxy.common_utils.user_api_key_cache import UserApiKeyCache
 from litellm.proxy.utils import PrismaClient
 
 BASELINE_TEAM_MEMBER_PERMISSIONS: Final = [
+    KeyManagementRoutes.KEY_GENERATE,
     KeyManagementRoutes.KEY_INFO,
     KeyManagementRoutes.KEY_HEALTH,
 ]
@@ -86,6 +87,13 @@ class TeamMemberPermissionChecks:
         )
 
         caller_team_role: Final = _get_caller_team_role(team_table=team_table, user_api_key_dict=user_api_key_dict)
+
+        if (
+            caller_team_role == "user"
+            and existing_key_row.user_id == user_api_key_dict.user_id
+            and route in {KeyManagementRoutes.KEY_UPDATE, KeyManagementRoutes.KEY_REGENERATE}
+        ):
+            return
 
         # 4. Check if the team member has permissions for the endpoint
         has_permission: Final = TeamMemberPermissionChecks.does_team_member_have_permissions_for_endpoint(

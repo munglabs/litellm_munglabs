@@ -30,6 +30,7 @@ class TestGetPermissionsForTeamMember:
         result = TeamMemberPermissionChecks.get_permissions_for_team_member(team_table=team)
 
         assert set(result) == set(BASELINE_TEAM_MEMBER_PERMISSIONS)
+        assert KeyManagementRoutes.KEY_GENERATE in result
 
     def test_empty_list_includes_baseline(self):
         """When team_member_permissions is [], baseline permissions are still included."""
@@ -246,6 +247,44 @@ class TestCanTeamMemberExecuteKeyManagementEndpoint:
 
         existing_key_row = MagicMock()
         existing_key_row.team_id = "team-a"
+
+        await TeamMemberPermissionChecks.can_team_member_execute_key_management_endpoint(
+            user_api_key_dict=user_api_key_dict,
+            route=route,
+            prisma_client=MagicMock(),
+            user_api_key_cache=MagicMock(),
+            existing_key_row=existing_key_row,
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("route", [KeyManagementRoutes.KEY_UPDATE, KeyManagementRoutes.KEY_REGENERATE])
+    async def test_allows_team_member_to_manage_own_key(self, monkeypatch, route):
+        from litellm.proxy.management_endpoints import key_management_endpoints
+        from litellm.proxy.management_helpers import (
+            team_member_permission_checks as module,
+        )
+
+        async def _mock_get_team_object(**kwargs):
+            team = MagicMock()
+            team.team_id = "team-a"
+            team.team_member_permissions = []
+            return team
+
+        monkeypatch.setattr(module, "get_team_object", _mock_get_team_object)
+        monkeypatch.setattr(
+            key_management_endpoints,
+            "_get_user_in_team",
+            lambda **kwargs: Member(role="user", user_id="user-a"),
+        )
+
+        user_api_key_dict = MagicMock()
+        user_api_key_dict.user_role = "internal_user"
+        user_api_key_dict.user_id = "user-a"
+        user_api_key_dict.parent_otel_span = None
+
+        existing_key_row = MagicMock()
+        existing_key_row.team_id = "team-a"
+        existing_key_row.user_id = "user-a"
 
         await TeamMemberPermissionChecks.can_team_member_execute_key_management_endpoint(
             user_api_key_dict=user_api_key_dict,
