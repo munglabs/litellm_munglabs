@@ -20,39 +20,6 @@ from litellm.proxy.management_endpoints.team_endpoints import (
 )
 
 
-@pytest.mark.asyncio
-async def test_ateam_member_update_admin_requires_premium(monkeypatch):
-    # Arrange: patch prisma_client and premium_user
-    monkeypatch.setattr(proxy_server, "prisma_client", object())
-    monkeypatch.setattr(proxy_server, "premium_user", False)
-
-    # Create a request body that tries to set role=admin
-    data = TeamMemberUpdateRequest(
-        team_id="team-1234",
-        user_id="user-1",
-        user_email=None,
-        role="admin",
-        max_budget_in_team=None,
-    )
-    scope = {"type": "http", "method": "POST", "path": "/team/member_update"}
-    request = Request(scope)
-
-    # We don't need a full auth object since premium check happens before auth is used
-    auth = object()
-
-    # Act & Assert: expect HTTPException 400 with the exact premium feature message
-    with pytest.raises(HTTPException) as exc_info:
-        await team_member_update(data, request, auth)
-
-    assert exc_info.value.status_code == 400
-    expected_msg = (
-        "Assigning team admins is a premium feature. You must be a LiteLLM Enterprise user to use this feature. "
-        "If you have a license please set `LITELLM_LICENSE` in your env. Get a 7 day trial key here: https://www.litellm.ai/#trial. "
-        "Pricing: https://www.litellm.ai/#pricing"
-    )
-    assert exc_info.value.detail == expected_msg
-
-
 @pytest.fixture
 def happy_path_upsert(monkeypatch):
     """Stub out the DB and the budget upsert so a team_member_update call reaches
@@ -98,13 +65,14 @@ def happy_path_upsert(monkeypatch):
         ),
     )
     upsert_mock = AsyncMock()
+    upsert_mock.team_update = prisma_client.db.litellm_teamtable.update
     monkeypatch.setattr(team_endpoints, "_upsert_budget_and_membership", upsert_mock)
     return upsert_mock
 
 
-def _member_update_request(**overrides):
+def _member_update_request(role="user", **overrides):
     data = TeamMemberUpdateRequest(
-        team_id="team-1234", user_id="user-1", role="user", **overrides
+        team_id="team-1234", user_id="user-1", role=role, **overrides
     )
     request = Request({"type": "http", "method": "POST", "path": "/team/member_update"})
     auth = UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN.value, user_id="admin")
@@ -127,6 +95,17 @@ async def test_team_member_update_sends_provided_fields_as_patch(happy_path_upse
         "budget_duration": "30d",
     }
     assert response.budget_duration == "30d"
+
+
+@pytest.mark.asyncio
+async def test_team_member_update_assigns_admin_without_premium_license(happy_path_upsert):
+    data, request, auth = _member_update_request(role="admin")
+
+    await team_member_update(data, request, auth)
+
+    assert happy_path_upsert.team_update.await_args.kwargs["data"] == {
+        "members_with_roles": '[{"user_id": "user-1", "user_email": null, "role": "admin"}]'
+    }
 
 
 @pytest.mark.asyncio

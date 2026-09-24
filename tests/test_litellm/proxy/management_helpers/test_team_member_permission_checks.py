@@ -218,7 +218,8 @@ class TestCanTeamMemberExecuteKeyManagementEndpoint:
         assert exc.value.type == "team_member_permission_error"
 
     @pytest.mark.asyncio
-    async def test_allows_team_admin_in_keys_team(self, monkeypatch):
+    @pytest.mark.parametrize("route", [KeyManagementRoutes.KEY_UPDATE, KeyManagementRoutes.KEY_REGENERATE])
+    async def test_allows_team_admin_in_keys_team(self, monkeypatch, route):
         """Team admins of the key's team should be allowed."""
         from litellm.proxy.management_endpoints import key_management_endpoints
         from litellm.proxy.management_helpers import (
@@ -248,7 +249,7 @@ class TestCanTeamMemberExecuteKeyManagementEndpoint:
 
         await TeamMemberPermissionChecks.can_team_member_execute_key_management_endpoint(
             user_api_key_dict=user_api_key_dict,
-            route=KeyManagementRoutes.KEY_UPDATE,
+            route=route,
             prisma_client=MagicMock(),
             user_api_key_cache=MagicMock(),
             existing_key_row=existing_key_row,
